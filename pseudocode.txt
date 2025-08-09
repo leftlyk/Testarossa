@@ -1,0 +1,54 @@
+SET target_coverage = 90
+
+FUNCTION main():
+    PRINT "Starting Unit Test Writer Agent..."
+
+    # Step 1 – Discover target files
+    source_files = list_files_in("src/", pattern="*.py")
+
+    FOR each file IN source_files:
+        IF file_already_has_tests(file) == False:
+            # Step 2 – Read source code
+            code = read_file(file)
+
+            # Step 3 – Plan tests
+            test_plan = LLM.generate(
+                prompt = "Plan unit tests for this code covering normal, edge, and error cases:\n" + code
+            )
+
+            # Step 4 – Generate tests
+            test_code = LLM.generate(
+                prompt = "Write pytest tests based on this plan:\n" + test_plan + "\nCode:\n" + code
+            )
+
+            # Step 5 – Save tests to file
+            test_file_path = make_test_filename(file)
+            write_file(test_file_path, test_code)
+
+    LOOP:
+        # Step 6 – Run tests & get coverage
+        run_command("coverage run -m pytest -q")
+        coverage_percent = parse_coverage_output(
+            run_command("coverage report")
+        )
+
+        IF coverage_percent >= target_coverage:
+            PRINT "Target coverage reached."
+            BREAK LOOP
+
+        # Step 7 – Analyze failures
+        failures_output = run_command("pytest --maxfail=1 -q --disable-warnings")
+        IF failures_exist(failures_output):
+            fix_suggestions = LLM.generate(
+                prompt = "Analyze test failures and suggest fixes:\n" + failures_output
+            )
+            apply_test_fixes(fix_suggestions)
+
+        # Step 8 – Improve coverage
+        uncovered_lines = parse_uncovered_lines("coverage report")
+        improvement_plan = LLM.generate(
+            prompt = "Write additional tests to cover these lines:\n" + uncovered_lines
+        )
+        append_tests_to_files(improvement_plan)
+
+    PRINT "All done – tests saved and coverage goal met."
