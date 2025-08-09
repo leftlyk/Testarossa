@@ -4,6 +4,10 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import json
 import os
+import coverage
+import io
+import sys
+import pytest
 
 load_dotenv()
 
@@ -110,6 +114,31 @@ def clean_code_block(text):
         text = text[: -3]
     return text.strip()
 
+def run_pytest_with_coverage(path):
+    cov = coverage.Coverage()
+    cov.start()
+
+    # Capture pytest output
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+    sys.stdout, sys.stderr = stdout, stderr
+
+    try:
+        exit_code = pytest.main([path])
+    finally:
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+        cov.stop()
+        cov.save()
+
+    out = stdout.getvalue()
+    err = stderr.getvalue()
+
+    # Get total coverage percentage
+    total_coverage = cov.report(show_missing=False)
+
+    return exit_code, out, err, total_coverage
+
 def main():
 
     source_files = [file for file in os.listdir("source_files/") if file.endswith('.py')]
@@ -133,10 +162,14 @@ def main():
             with open(test_filepath, mode="w") as f:
                 f.write(clean_code_block(test_code))
 
-    '''
     current_coverage = 0
+    previous_coverage = -1
     while current_coverage < TARGET_COVERAGE:
-    '''
+        exit_code, out, err, current_coverage = run_pytest_with_coverage(path="tests/")
+        print(f"Current coverage: {current_coverage:.2f}%")
+
+    print("COVERAGE REACHED.... EXITING")
+
 
 if __name__ == "__main__":
     main()
