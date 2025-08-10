@@ -139,6 +139,20 @@ def run_pytest_with_coverage(path):
 
     return exit_code, out, err, total_coverage
 
+def append_tests_to_file(test_code, test_filename="tests/test_math_utils.py"):
+    # Clean code fences, then append
+    def clean_code_block(text):
+        if text.startswith("```"):
+            first_newline = text.find("\n")
+            text = text[first_newline+1:]
+        if text.endswith("```"):
+            text = text[:-3]
+        return text.strip()
+
+    clean_code = clean_code_block(test_code)
+    with open(test_filename, "a") as f:
+        f.write("\n\n" + clean_code)
+
 def main():
 
     source_files = [file for file in os.listdir("source_files/") if file.endswith('.py')]
