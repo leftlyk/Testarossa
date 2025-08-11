@@ -8,6 +8,7 @@ import coverage
 import io
 import sys
 import pytest
+import re
 
 load_dotenv()
 
@@ -32,8 +33,8 @@ def run_model(prompt):
 
 def mock_run_model(prompt):
     return """
-```python
-    import pytest
+```python \n
+import pytest
 from source_files.maths_utils import add, subtract, multiply, divide, factorial, is_prime
 
 # Test cases for add(a, b) function
@@ -102,16 +103,13 @@ def test_is_prime_edge():
 def test_is_prime_error():
     assert is_prime(-4) == False
 ```
-    """
+"""
 
 def clean_code_block(text):
-    # Remove triple backticks and optional language specifier
-    if text.startswith("```"):
-        # find first newline after ```
-        first_newline = text.find("\n")
-        text = text[first_newline+1:]  # remove ```python line
-    if text.endswith("```"):
-        text = text[: -3]
+    # Remove any leading code fence (with optional language)
+    text = re.sub(r"^\s*```(?:\w+)?\s*", "", text)
+    # Remove any trailing code fence
+    text = re.sub(r"\s*```\s*$", "", text)
     return text.strip()
 
 def run_pytest_with_coverage(path):
@@ -153,6 +151,26 @@ def append_tests_to_file(test_code, test_filename="tests/test_math_utils.py"):
     with open(test_filename, "a") as f:
         f.write("\n\n" + clean_code)
 
+def get_failures_from_output(output_text):
+    # Simple heuristic to extract failure summaries (can be improved)
+    if "FAILED" in output_text:
+        # Extract relevant lines or sections about failures
+        # (You could parse pytest's summary or error trace)
+        return output_text
+    return None
+
+def fix_failures_with_llm(failure_text):
+    '''
+    prompt = (
+        "Analyze these pytest failure messages and suggest fixes or improved tests:\n"
+        + failure_text
+    )
+
+    fix_code = run_model("small", prompt)
+    append_tests_to_file(fix_code)
+    '''
+    print(failure_text)
+
 def main():
 
     source_files = [file for file in os.listdir("source_files/") if file.endswith('.py')]
@@ -164,12 +182,17 @@ def main():
             with open(f"source_files/{fp}", mode='r') as f:
                 code = f.read()
 
-            testing_plan = mock_run_model(
+            test_code = ""
+
+            test_code += "import pytest \n"
+            test_code += f"import source_files.{fp[:-3]} as testfile \n"
+
+            testing_plan = run_model(
                                      prompt = "You are a senior testing engineer. Write a (text) PLAN for unit tests for this code covering normal, edge, and error cases:\n" + code + "file path: source_files/"+fp
                                      )
 
-            test_code = mock_run_model(
-                                  prompt = "You are a senior testing engineer. Write GOOD QUALITY, high coverage pytest tests based on a testing plan. You should output python code which can directly be written to a python file. Return ONLY the code, nothing else -- your output will directly be written to a .py file with NO preprocessing. No '`' or anything, unless it has a '#' before it. Testing plan: \n" + testing_plan + "\nCode:\n" + code
+            test_code += run_model(
+                                  prompt = "You are a senior testing engineer. Write GOOD QUALITY, high coverage PYTEST tests based on a testing plan. You should output string-wrapped python code which can directly be written to a python file. For every unit test, when you call a function, call it as 'testfile'.function e.g 'testfile.add()'. DO NOT TRY TO IMPORT ANY LIBRARIES -- this will be done manually. Return ONLY the code, nothing else -- your output will directly be written to a .py file with NO preprocessing. Output only the code with no markdown fences. Testing plan: \n" + testing_plan + "\nCode:\n" + code
                                   )
 
             test_filepath = f"tests/test_{fp}"
@@ -180,6 +203,11 @@ def main():
     previous_coverage = -1
     while current_coverage < TARGET_COVERAGE:
         exit_code, out, err, current_coverage = run_pytest_with_coverage(path="tests/")
+
+        if exit_code != 0:
+            failures = get_failures_from_output(out)
+            fix_failures_with_llm(failures)
+
         print(f"Current coverage: {current_coverage:.2f}%")
 
     print("COVERAGE REACHED.... EXITING")
